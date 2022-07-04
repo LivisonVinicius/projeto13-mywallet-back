@@ -27,7 +27,7 @@ const userSchema = joi.object({
 });
 
 const moneySchema = joi.object({
-  value: joi.number().required(),
+  money: joi.number().required(),
   description: joi.string().required(),
 });
 
@@ -57,6 +57,7 @@ app.post("/register", async (req, res) => {
       user: req.body.user,
       email: req.body.email,
       pwd: encryptedPwd,
+      balance: 0,
     });
     res.sendStatus(201);
     return;
@@ -87,13 +88,11 @@ app.post("/login", async (req, res) => {
       await db
         .collection("onlineUsers")
         .updateOne({ userID: tryLogin._id }, { $set: { accessToken: token } });
-      console.log("foi editado");
     }
     if (!vrfLogin) {
       await db
         .collection("onlineUsers")
         .insertOne({ userID: tryLogin._id, accessToken: token });
-      console.log("foi criado");
     }
     const respToken = await db
       .collection("onlineUsers")
@@ -111,8 +110,6 @@ app.post("/login", async (req, res) => {
 app.post("/deposit", async (req, res) => {
   const { authorization } = req.headers;
   const token = authorization?.replace("Bearer ", "");
-
-  console.log(token);
 
   if (!token) {
     res.sendStatus(402);
@@ -137,11 +134,20 @@ app.post("/deposit", async (req, res) => {
   }
 
   try {
+    const user = await db.collection("users").findOne({ _id: session.userID });
+    const sum = Number(user.balance) + Number(req.body.money);
+    await db
+      .collection("users")
+      .updateOne({ _id: session.userID }, { $set: { balance: sum } });
+    const updatedUser = await db
+      .collection("users")
+      .findOne({ _id: session.userID });
     await db.collection("transactions").insertOne({
       userID: session.userID,
-      value: req.body.value,
+      money: req.body.money,
       description: req.body.description,
       type: "deposit",
+      newBalance: updatedUser.balance,
       date: dayjs().format("DD/MM"),
     });
     res.sendStatus(200);
@@ -179,11 +185,20 @@ app.post("/withdraw", async (req, res) => {
   }
 
   try {
+    const user = await db.collection("users").findOne({ _id: session.userID });
+    const sum = Number(user.balance) - Number(req.body.money);
+    await db
+      .collection("users")
+      .updateOne({ _id: session.userID }, { $set: { balance: sum } });
+    const updatedUser = await db
+      .collection("users")
+      .findOne({ _id: session.userID });
     await db.collection("transactions").insertOne({
       userID: session.userID,
-      value: req.body.value,
+      money: req.body.money,
       description: req.body.description,
       type: "withdraw",
+      newBalance: updatedUser.balance,
       date: dayjs().format("DD/MM"),
     });
     res.sendStatus(200);
@@ -216,10 +231,8 @@ app.get("/records", async (req, res) => {
       .collection("transactions")
       .find({ userID: session.userID })
       .toArray();
-    transactionList.forEach((element) => {
-      delete element._id;
-    });
-    res.send(transactionList);
+    console.log(transactionList);
+    res.send(transactionList).status(200);
     return;
   } catch (error) {
     res.sendStatus(500);
